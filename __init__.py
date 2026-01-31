@@ -1,8 +1,8 @@
 """
-Finlang - Trading Signal Generation via HF Space API
+Finlang - Crypto Trading Signal Generator
 
-Lightweight framework for generating trading signals using Kronos predictions
-from HF Space. All predictions are fetched via API.
+Lightweight framework for generating trading signals using remote prediction API.
+Supports multiple strategies: voting, voting_72h, mlp, dynamic.
 
 Usage:
     # CLI (recommended)

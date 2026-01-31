@@ -131,7 +131,7 @@ def save_prediction(pred: Dict[str, Any], hist_dir: Path) -> Path:
         "sig_24h": pred.get("sig_24h", pred.get("upside_probability", 0.5)),
         "current_close": pred.get("current_close", 0),
         "saved_at": datetime.now(timezone.utc).isoformat(),
-        "source": pred.get("source", "hf_space_api"),
+        "source": pred.get("source", "prediction_api"),
     }
     
     with open(filepath, "w") as f:
@@ -637,7 +637,7 @@ def main():
     parser = argparse.ArgumentParser(description="Unified cron signal generator with all strategies")
     parser.add_argument("--symbol", "-s", default="BTCUSDT", help="Trading symbol")
     parser.add_argument("--strategy", "-t", choices=["voting", "voting_72h", "mlp", "dynamic"], default="voting", help="Strategy to use")
-    parser.add_argument("--api-url", default=DEFAULT_API_URL, help="HF Space API URL")
+    parser.add_argument("--api-url", default=DEFAULT_API_URL, help="Prediction API URL")
     parser.add_argument("--signal-dir", help="Signal output directory")
     parser.add_argument("--webhook", help="Webhook URL")
     parser.add_argument("--force-retrain", action="store_true", help="Force MLP retraining")

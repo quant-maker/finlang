@@ -53,7 +53,7 @@ class Signal:
     factors: Dict[str, Any] = field(default_factory=dict)
     trend_state: TrendState = "neutral"
     reasoning: str = ""
-    analysis_type: str = "kronos"
+    analysis_type: str = "finlang"
     strategy_used: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     prediction_time: str = ""
