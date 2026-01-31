@@ -1,0 +1,4 @@
+# Finlang - Minimal dependencies (API mode)
+requests
+numpy
+pandas
