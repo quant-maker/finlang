@@ -3,8 +3,8 @@
 Unified Cron Script - All strategies using remote prediction API.
 
 Supports:
-- Voting strategy (96h window, long-only, conservative)
-- Voting 72h strategy (72h window, supports short, best Sharpe)
+- Voting strategy (96h window, long_threshold=0.50, Sharpe ~0.95)
+- Voting 120h strategy (120h window, long_threshold=0.58, Sharpe ~0.97, best)
 - MLP strategy (online learning neural network)
 - Dynamic strategy (adaptive thresholds)
 
@@ -21,7 +21,7 @@ Usage:
     python -m finlang.cron --symbol BTCUSDT
     
     # Run with specific strategy
-    python -m finlang.cron --symbol BTCUSDT --strategy voting_72h
+    python -m finlang.cron --symbol BTCUSDT --strategy voting_120h
     python -m finlang.cron --symbol BTCUSDT --strategy mlp
     python -m finlang.cron --symbol BTCUSDT --strategy dynamic
     
@@ -58,21 +58,21 @@ from finlang.model.mlp import OnlineMLP
 # Configuration
 # =============================================================================
 
-# Voting strategy configurations
-# voting: 96h window, conservative (long-only), Sharpe ~0.95
-# voting_72h: 72h window, supports short, Sharpe ~1.02 (best)
+# Voting strategy configurations (based on backtest with 25928 hours of data)
+# voting: 96h window, long_threshold=0.50, Sharpe ~0.95
+# voting_120h: 120h window, long_threshold=0.58, Sharpe ~0.97 (best)
 VOTING_CONFIGS = {
     "voting": {
         "window": 96,
-        "long_threshold": 0.55,
+        "long_threshold": 0.50,
         "short_threshold": 0.40,  # flat threshold (no short)
         "allow_short": False,
     },
-    "voting_72h": {
-        "window": 72,
-        "long_threshold": 0.52,
-        "short_threshold": 0.48,
-        "allow_short": True,
+    "voting_120h": {
+        "window": 120,
+        "long_threshold": 0.58,
+        "short_threshold": 0.40,
+        "allow_short": False,
     },
 }
 
@@ -636,7 +636,7 @@ def run(
 def main():
     parser = argparse.ArgumentParser(description="Unified cron signal generator with all strategies")
     parser.add_argument("--symbol", "-s", default="BTCUSDT", help="Trading symbol")
-    parser.add_argument("--strategy", "-t", choices=["voting", "voting_72h", "mlp", "dynamic"], default="voting", help="Strategy to use")
+    parser.add_argument("--strategy", "-t", choices=["voting", "voting_120h", "mlp", "dynamic"], default="voting", help="Strategy to use")
     parser.add_argument("--api-url", default=DEFAULT_API_URL, help="Prediction API URL")
     parser.add_argument("--signal-dir", help="Signal output directory")
     parser.add_argument("--webhook", help="Webhook URL")

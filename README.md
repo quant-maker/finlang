@@ -4,7 +4,7 @@ Lightweight trading signal generator using remote prediction API. Supports multi
 
 ## Features
 
-- **Multiple Strategies**: voting, voting_72h, mlp, dynamic
+- **Multiple Strategies**: voting, voting_120h, mlp, dynamic
 - **Auto Backfill**: Automatically fills missing history on cold start
 - **Cron Ready**: Designed for hourly crontab execution
 - **Webhook Support**: Send signals to external services
@@ -12,37 +12,39 @@ Lightweight trading signal generator using remote prediction API. Supports multi
 
 ## Strategies
 
-| Strategy | Window | Long Threshold | Short Threshold | Allows Short | Expected Sharpe |
-|----------|--------|----------------|-----------------|--------------|-----------------|
-| `voting` | 96h | 55% | 40% | No | ~0.95 |
-| `voting_72h` | 72h | 52% | 48% | **Yes** | ~1.02 |
-| `mlp` | 272h* | 55% | 45% | No | ~0.90 |
-| `dynamic` | 48h | Adaptive | Adaptive | No | ~0.85 |
+| Strategy | Window | Long Threshold | Short Threshold | Allows Short | Sharpe (Backtest) |
+|----------|--------|----------------|-----------------|--------------|-------------------|
+| `voting` | 96h | 50% | 40% | No | 0.95 |
+| `voting_120h` | 120h | 58% | 40% | No | **0.97** |
+| `mlp` | 272h* | 55% | 45% | No | TBD |
+| `dynamic` | 48h | Adaptive | Adaptive | No | TBD |
 
 \* MLP requires 200 training samples + 72h lookahead = 272 hours minimum
+
+Backtest period: 2023-02-14 ~ 2026-01-29 (25,928 hours)
 
 ### Strategy Details
 
 #### Voting (Default)
-Counts bullish predictions (sig_24h > 50%) in a rolling window. Conservative, long-only.
+Counts bullish predictions (upside_probability > 50%) in a rolling window. Long-only.
 
 ```
-If bullish_pct >= 55% → LONG
+If bullish_pct >= 50% → LONG
 If bullish_pct < 40%  → FLAT
 Otherwise             → FLAT
 ```
 
-#### Voting 72h (Best Sharpe)
-Shorter window with tighter thresholds. Supports short positions.
+#### Voting 120h (Best Sharpe)
+Longer window with stricter threshold. Best backtested Sharpe ratio.
 
 ```
-If bullish_pct >= 52% → LONG
-If bullish_pct < 48%  → SHORT
+If bullish_pct >= 58% → LONG
+If bullish_pct < 40%  → FLAT
 Otherwise             → FLAT
 ```
 
 #### MLP (Machine Learning)
-Online learning neural network trained on historical sig_24h → 72h price change.
+Online learning neural network trained on historical upside_probability → 72h price change.
 
 #### Dynamic
 Adaptive thresholds based on recent volatility:
@@ -84,12 +86,12 @@ export FINLANG_SIGNAL_DIR="/path/to/signals"
 python -m finlang.cron --symbol BTCUSDT
 
 # Specific strategy
-python -m finlang.cron --symbol BTCUSDT --strategy voting_72h
+python -m finlang.cron --symbol BTCUSDT --strategy voting_120h
 python -m finlang.cron --symbol BTCUSDT --strategy mlp
 python -m finlang.cron --symbol BTCUSDT --strategy dynamic
 
 # Test run (no file saving)
-python -m finlang.cron --symbol BTCUSDT --strategy voting_72h --no-save --no-backfill
+python -m finlang.cron --symbol BTCUSDT --strategy voting_120h --no-save --no-backfill
 
 # JSON output
 python -m finlang.cron --symbol BTCUSDT --json
@@ -152,8 +154,8 @@ Edit crontab: `crontab -e`
 # Voting (96h, long-only) - every hour at minute 5
 5 * * * * /opt/finlang/run.sh voting >> /var/log/finlang/voting.log 2>&1
 
-# Voting 72h (best Sharpe, supports short) - every hour at minute 6
-6 * * * * /opt/finlang/run.sh voting_72h >> /var/log/finlang/voting_72h.log 2>&1
+# Voting 120h (best Sharpe) - every hour at minute 6
+6 * * * * /opt/finlang/run.sh voting_120h >> /var/log/finlang/voting_120h.log 2>&1
 
 # MLP (machine learning) - every hour at minute 7
 7 * * * * /opt/finlang/run.sh mlp >> /var/log/finlang/mlp.log 2>&1
@@ -200,10 +202,10 @@ export FINLANG_API_URL="https://your-prediction-service.example.com"
 python -m finlang.cron --symbol BTCUSDT --backfill 300
 
 # 5. Test run
-./run.sh voting_72h
+./run.sh voting_120h
 
 # 6. Setup crontab
-(crontab -l 2>/dev/null; echo "5 * * * * /opt/finlang/run.sh voting_72h >> /var/log/finlang/voting_72h.log 2>&1") | crontab -
+(crontab -l 2>/dev/null; echo "5 * * * * /opt/finlang/run.sh voting_120h >> /var/log/finlang/voting_120h.log 2>&1") | crontab -
 ```
 
 ### Verify Deployment
@@ -213,10 +215,10 @@ python -m finlang.cron --symbol BTCUSDT --backfill 300
 crontab -l
 
 # Monitor logs
-tail -f /var/log/finlang/voting_72h.log
+tail -f /var/log/finlang/voting_120h.log
 
 # Check latest signal
-cat /opt/finlang/signals/btcusdt_voting_72h_latest.json
+cat /opt/finlang/signals/btcusdt_voting_120h_latest.json
 ```
 
 ## Output
@@ -232,15 +234,15 @@ cat /opt/finlang/signals/btcusdt_voting_72h_latest.json
   "trend": "bullish",
   "score": 0.583,
   "current_close": 82500.0,
-  "strategy": "voting_72h",
+  "strategy": "voting_120h",
   "source": "prediction_api",
   "factors": {
     "sig_24h": 65.0,
-    "history_count": 72,
+    "history_count": 120,
     "bullish_pct": 58.3,
-    "bullish_count": 42,
-    "total_count": 72,
-    "allow_short": true
+    "bullish_count": 70,
+    "total_count": 120,
+    "allow_short": false
   }
 }
 ```
@@ -251,7 +253,6 @@ cat /opt/finlang/signals/btcusdt_voting_72h_latest.json
 |----------|--------|---------|
 | `1` | LONG | Buy / Hold long |
 | `0` | FLAT | No position / Exit |
-| `-1` | SHORT | Sell short (voting_72h only) |
 
 ## File Structure
 
@@ -269,7 +270,7 @@ finlang/
 │   └── btcusdt/
 │       └── 20260131_1400.json
 ├── signals/             # Auto-created: output signals
-│   └── btcusdt_voting_72h_latest.json
+│   └── btcusdt_voting_120h_latest.json
 └── models/              # Auto-created: MLP weights
     └── mlp_btcusdt.npz
 ```
