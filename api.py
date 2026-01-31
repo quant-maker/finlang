@@ -338,28 +338,28 @@ def api_result_to_prediction(result: Dict[str, Any]) -> Dict[str, Any]:
     """
     current_close = result.get("last_close", 0)
     
-    # Get upside probability
+    # Get upside probability (the main signal)
     upside = result.get("upside_probability", 50.0)
     sig_24h = upside / 100.0 if upside > 1 else upside
     
     prediction = {
         "timestamp": result.get("timestamp", datetime.now(timezone.utc).isoformat()),
         "current_close": current_close,
-        "sig_24h": sig_24h,
+        "sig_24h": sig_24h,  # This is the main probability signal
         "upside_probability": sig_24h,
         "source": "prediction_api",
         "symbol": result.get("symbol", "BTCUSDT"),
         "inference_time": result.get("inference_time_seconds", 0),
     }
     
-    # Add hourly predictions if available
+    # Add hourly price predictions if available (NOT overwriting sig_24h)
     if "predictions" in result:
         preds = result["predictions"]
         means = preds.get("mean", [])
         
         for h, pred_mean in enumerate(means, 1):
             if h <= 24:
-                prediction[f"sig_{h}h"] = 1.0 if pred_mean > current_close else 0.0
+                # Store predicted price, not binary signal
                 prediction[f"pred_{h}h"] = pred_mean
     
     return prediction
