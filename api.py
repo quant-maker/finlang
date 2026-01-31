@@ -45,6 +45,12 @@ def _call_gradio_api(
     1. POST to /gradio_api/call/{endpoint} - returns event_id
     2. GET from /gradio_api/call/{endpoint}/{event_id} - returns SSE stream
     """
+    if not api_url:
+        raise ValueError(
+            "API URL not configured. Set FINLANG_API_URL environment variable.\n"
+            "Example: export FINLANG_API_URL='https://your-prediction-service.example.com'"
+        )
+    
     # Step 1: Submit request and get event_id
     submit_url = f"{api_url}/gradio_api/call/{endpoint}"
     resp = requests.post(
