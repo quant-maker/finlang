@@ -62,17 +62,19 @@ from finlang.model.mlp import OnlineMLP
 # =============================================================================
 
 # Voting strategy defaults (based on backtest: beats B&H with Sharpe 1.45)
+# Note: allow_short=false because short signals underperform in bull markets
 DEFAULT_VOTING_CONFIG = {
     "strategy": "voting",
     "symbol": "BTCUSDT",
     "window": 48,
     "threshold": 0.58,          # bullish_pct >= threshold -> LONG
     "short_threshold": 0.42,    # bullish_pct <= short_threshold -> SHORT
-    "allow_short": True,        # enable short positions
+    "allow_short": False,       # disabled by default (short signals unreliable in backtest)
     "rebalance_hours": 72,
 }
 
 # MLP strategy defaults
+# Note: allow_short=false by default, enable if you have edge in bear markets
 DEFAULT_MLP_CONFIG = {
     "strategy": "mlp",
     "symbol": "BTCUSDT",
@@ -83,7 +85,7 @@ DEFAULT_MLP_CONFIG = {
     "epochs": 50,
     "long_threshold": 0.55,     # prob >= long_threshold -> LONG
     "short_threshold": 0.45,    # prob <= short_threshold -> SHORT
-    "allow_short": True,
+    "allow_short": False,
     "rebalance_hours": 24,
 }
 
@@ -92,7 +94,7 @@ DEFAULT_DYNAMIC_CONFIG = {
     "strategy": "dynamic",
     "symbol": "BTCUSDT",
     "window": 48,
-    "allow_short": True,
+    "allow_short": False,
     "rebalance_hours": 24,
 }
 
