@@ -4,7 +4,7 @@ Lightweight trading signal generator using remote prediction API. Supports multi
 
 ## Features
 
-- **Multiple Strategies**: voting, voting_120h, mlp, dynamic
+- **Multiple Strategies**: voting, voting_72h, voting_120h, mlp, dynamic
 - **Auto Backfill**: Automatically fills missing history on cold start
 - **Cron Ready**: Designed for hourly crontab execution
 - **Webhook Support**: Send signals to external services
@@ -15,7 +15,8 @@ Lightweight trading signal generator using remote prediction API. Supports multi
 | Strategy | Window | Long Threshold | Short Threshold | Allows Short | Sharpe (Backtest) |
 |----------|--------|----------------|-----------------|--------------|-------------------|
 | `voting` | 96h | 50% | 40% | No | 0.95 |
-| `voting_120h` | 120h | 58% | 40% | No | **0.97** |
+| `voting_72h` | 72h | 52% | 48% | No | **1.02** |
+| `voting_120h` | 120h | 58% | 40% | No | 0.97 |
 | `mlp` | 272h* | 55% | 45% | No | TBD |
 | `dynamic` | 48h | Adaptive | Adaptive | No | TBD |
 
@@ -34,8 +35,17 @@ If bullish_pct < 40%  → FLAT
 Otherwise             → FLAT
 ```
 
-#### Voting 120h (Best Sharpe)
-Longer window with stricter threshold. Best backtested Sharpe ratio.
+#### Voting 72h (Best Sharpe)
+72h rolling window with 52%/48% thresholds. Best backtested Sharpe ratio (1.02).
+
+```
+If bullish_pct >= 52% → LONG
+If bullish_pct < 48%  → FLAT
+Otherwise             → FLAT
+```
+
+#### Voting 120h
+Longer window with stricter threshold.
 
 ```
 If bullish_pct >= 58% → LONG
