@@ -3,11 +3,12 @@
 Unified Cron Script - All strategies using remote prediction API.
 
 Supports:
-- Voting 48h strategy (48h window, 58% threshold, Sharpe 1.45, BEATS B&H - recommended)
-- Voting strategy (96h window, 50% threshold, Sharpe ~0.65)
-- Voting 120h strategy (120h window, 58% threshold, Sharpe ~0.97)
+- Voting strategy (parameterized: --window, --threshold)
 - MLP strategy (online learning neural network)
-- Dynamic strategy (adaptive thresholds)
+- Dynamic strategy (adaptive thresholds based on volatility)
+
+Recommended voting params (beats B&H in backtest):
+    --strategy voting --window 48 --threshold 0.58  # Sharpe 1.45
 
 All strategies use predictions from remote prediction API.
 Cold start: Automatically backfills missing history using custom data API.
@@ -18,12 +19,11 @@ Configuration:
 - Set FINLANG_API_URL environment variable to specify the prediction service URL
 
 Usage:
-    # Run with recommended strategy (voting_48h - beats B&H)
-    python -m finlang.cron --symbol BTCUSDT --strategy voting_48h
+    # Recommended: voting with 48h window, 58% threshold (beats B&H)
+    python -m finlang.cron --symbol BTCUSDT --strategy voting --window 48 --threshold 0.58
     
-    # Run with other strategies
-    python -m finlang.cron --symbol BTCUSDT --strategy voting
-    python -m finlang.cron --symbol BTCUSDT --strategy voting_120h
+    # Other examples
+    python -m finlang.cron --symbol BTCUSDT --strategy voting --window 96 --threshold 0.50
     python -m finlang.cron --symbol BTCUSDT --strategy mlp
     python -m finlang.cron --symbol BTCUSDT --strategy dynamic
     
@@ -34,7 +34,7 @@ Usage:
     python -m finlang.cron --symbol BTCUSDT --strategy mlp --force-retrain
 
 Crontab:
-    5 * * * * cd /path/to/finlang && python -m finlang.cron --symbol BTCUSDT --strategy voting_48h >> /var/log/finlang.log 2>&1
+    5 * * * * cd /path/to/finlang && python -m finlang.cron --symbol BTCUSDT --strategy voting --window 48 --threshold 0.58 >> /var/log/finlang.log 2>&1
 """
 
 import os
@@ -60,30 +60,9 @@ from finlang.model.mlp import OnlineMLP
 # Configuration
 # =============================================================================
 
-# Voting strategy configurations (based on backtest with 25928 hours of data, 72h rebalance)
-# voting_48h: 48h window, long_threshold=0.58, Sharpe 1.45 (BEATS B&H, recommended)
-# voting: 96h window, long_threshold=0.50, Sharpe ~0.65 (underperforms B&H)
-# voting_120h: 120h window, long_threshold=0.58, Sharpe ~0.97 (underperforms B&H)
-VOTING_CONFIGS = {
-    "voting_48h": {
-        "window": 48,
-        "long_threshold": 0.58,
-        "short_threshold": 0.42,  # flat threshold (no short)
-        "allow_short": False,
-    },
-    "voting": {
-        "window": 96,
-        "long_threshold": 0.50,
-        "short_threshold": 0.40,
-        "allow_short": False,
-    },
-    "voting_120h": {
-        "window": 120,
-        "long_threshold": 0.58,
-        "short_threshold": 0.40,
-        "allow_short": False,
-    },
-}
+# Default voting parameters (based on backtest: 48h/58% beats B&H with Sharpe 1.45)
+DEFAULT_VOTING_WINDOW = 48
+DEFAULT_VOTING_THRESHOLD = 0.58
 
 # MLP parameters
 MLP_LOOKAHEAD = 72           # Hours to look ahead for labels
@@ -93,8 +72,6 @@ MLP_HIDDEN_DIM = 16
 MLP_EPOCHS = 50
 
 # Dynamic strategy parameters
-DYNAMIC_BULL_THRESHOLD = 0.60
-DYNAMIC_BEAR_THRESHOLD = 0.40
 DYNAMIC_WINDOW = 48
 
 # Backfill settings
@@ -252,28 +229,19 @@ def backfill_missing(
 
 def voting_strategy(
     records: List[Dict],
-    config: Optional[Dict[str, Any]] = None,
+    window: int = DEFAULT_VOTING_WINDOW,
+    threshold: float = DEFAULT_VOTING_THRESHOLD,
 ) -> Dict[str, Any]:
     """
     Voting strategy: Count bullish votes in rolling window.
     
     Args:
         records: List of historical prediction records
-        config: Strategy configuration dict with keys:
-            - window: Number of hours to look back
-            - long_threshold: Bullish % to go long
-            - short_threshold: Bullish % to go short (or flat if allow_short=False)
-            - allow_short: Whether to allow short positions
+        window: Number of hours to look back (default: 48)
+        threshold: Bullish % to go long (default: 0.58)
+    
+    Recommended params (beats B&H): window=48, threshold=0.58 → Sharpe 1.45
     """
-    # Default to standard voting config
-    if config is None:
-        config = VOTING_CONFIGS["voting"]
-    
-    window = config["window"]
-    long_threshold = config["long_threshold"]
-    short_threshold = config["short_threshold"]
-    allow_short = config.get("allow_short", False)
-    
     if not records:
         return {"error": "No predictions available"}
     
@@ -292,13 +260,9 @@ def voting_strategy(
     total_count = len(window_records)
     bullish_pct = bullish_count / total_count if total_count > 0 else 0.5
     
-    # Decision logic with short support
-    if bullish_pct >= long_threshold:
+    # Decision logic (long-only)
+    if bullish_pct >= threshold:
         position, action, trend = 1, "LONG", "bullish"
-    elif allow_short and bullish_pct < short_threshold:
-        position, action, trend = -1, "SHORT", "bearish"
-    elif bullish_pct < short_threshold:
-        position, action, trend = 0, "FLAT", "bearish"
     else:
         position, action, trend = 0, "FLAT", "neutral"
     
@@ -310,7 +274,8 @@ def voting_strategy(
         "bullish_pct": bullish_pct,
         "bullish_count": bullish_count,
         "total_count": total_count,
-        "allow_short": allow_short,
+        "window": window,
+        "threshold": threshold,
     }
 
 
@@ -504,6 +469,8 @@ def send_webhook(url: str, signal: Dict[str, Any]) -> bool:
 def run(
     symbol: str = "BTCUSDT",
     strategy: str = "voting",
+    window: int = DEFAULT_VOTING_WINDOW,
+    threshold: float = DEFAULT_VOTING_THRESHOLD,
     api_url: str = DEFAULT_API_URL,
     base_dir: Optional[str] = None,
     signal_dir: Optional[str] = None,
@@ -514,9 +481,17 @@ def run(
 ) -> Dict[str, Any]:
     """
     Main entry point.
+    
+    Args:
+        symbol: Trading symbol (default: BTCUSDT)
+        strategy: Strategy name (voting, mlp, dynamic)
+        window: Voting window in hours (default: 48)
+        threshold: Voting threshold (default: 0.58)
+        ...
     """
     now = datetime.now(timezone.utc)
-    print(f"[{now.isoformat()}] Starting {strategy} prediction for {symbol}")
+    strategy_name = f"{strategy}_{window}h_{int(threshold*100)}" if strategy == "voting" else strategy
+    print(f"[{now.isoformat()}] Starting {strategy_name} prediction for {symbol}")
     
     # Setup paths
     if base_dir is None:
@@ -554,15 +529,14 @@ def run(
     print(f"[INFO] Loaded {len(records)} historical records")
     
     # Step 4: Auto-backfill if needed
-    # Get required hours based on strategy
-    if strategy in VOTING_CONFIGS:
-        required_hours = VOTING_CONFIGS[strategy]["window"]
+    if strategy == "voting":
+        required_hours = window
     elif strategy == "mlp":
         required_hours = MLP_TRAIN_MIN + MLP_LOOKAHEAD
     elif strategy == "dynamic":
         required_hours = DYNAMIC_WINDOW
     else:
-        required_hours = VOTING_CONFIGS["voting"]["window"]
+        required_hours = window
     
     if auto_backfill and len(records) < required_hours:
         print(f"[INFO] History insufficient ({len(records)}/{required_hours}), backfilling...")
@@ -576,12 +550,9 @@ def run(
         result = mlp_strategy(records, model_path, force_retrain, current_sig_24h)
     elif strategy == "dynamic":
         result = dynamic_strategy(records)
-    elif strategy in VOTING_CONFIGS:
-        # voting or voting_72h
-        result = voting_strategy(records, config=VOTING_CONFIGS[strategy])
     else:
-        # Fallback to standard voting
-        result = voting_strategy(records)
+        # voting (default)
+        result = voting_strategy(records, window=window, threshold=threshold)
     
     if "error" in result:
         return {"timestamp": now.isoformat(), "symbol": symbol, "position": 0, "action": "ERROR", "error": result["error"]}
@@ -610,18 +581,15 @@ def run(
     elif strategy == "dynamic":
         signal["factors"]["volatility"] = round(result.get("volatility", 0) * 100, 2)
         signal["factors"]["long_threshold"] = result.get("long_threshold", 0)
-    elif strategy in VOTING_CONFIGS:
-        # voting or voting_72h
-        signal["factors"]["bullish_pct"] = round(result.get("bullish_pct", 0) * 100, 1)
-        signal["factors"]["bullish_count"] = result.get("bullish_count", 0)
-        signal["factors"]["total_count"] = result.get("total_count", 0)
-        signal["factors"]["allow_short"] = result.get("allow_short", False)
     else:
+        # voting
         signal["factors"]["bullish_pct"] = round(result.get("bullish_pct", 0) * 100, 1)
         signal["factors"]["bullish_count"] = result.get("bullish_count", 0)
         signal["factors"]["total_count"] = result.get("total_count", 0)
+        signal["factors"]["window"] = result.get("window", window)
+        signal["factors"]["threshold"] = result.get("threshold", threshold)
     
-    print(f"[SIGNAL] {signal['symbol']}: {signal['action']} (strategy={strategy})")
+    print(f"[SIGNAL] {signal['symbol']}: {signal['action']} (strategy={strategy_name})")
     print(f"[SIGNAL] Price: ${signal['current_close']:,.2f}")
     
     # Step 6: Save signal
@@ -643,9 +611,26 @@ def run(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Unified cron signal generator with all strategies")
+    parser = argparse.ArgumentParser(
+        description="Unified cron signal generator with parameterized strategies",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Recommended (beats B&H): voting with 48h window, 58%% threshold
+  python -m finlang.cron --strategy voting --window 48 --threshold 0.58
+
+  # Custom voting parameters
+  python -m finlang.cron --strategy voting --window 96 --threshold 0.50
+
+  # Other strategies
+  python -m finlang.cron --strategy mlp
+  python -m finlang.cron --strategy dynamic
+        """
+    )
     parser.add_argument("--symbol", "-s", default="BTCUSDT", help="Trading symbol")
-    parser.add_argument("--strategy", "-t", choices=["voting_48h", "voting", "voting_120h", "mlp", "dynamic"], default="voting_48h", help="Strategy to use (voting_48h recommended)")
+    parser.add_argument("--strategy", "-t", choices=["voting", "mlp", "dynamic"], default="voting", help="Strategy type")
+    parser.add_argument("--window", "-w", type=int, default=DEFAULT_VOTING_WINDOW, help=f"Voting window in hours (default: {DEFAULT_VOTING_WINDOW})")
+    parser.add_argument("--threshold", "-th", type=float, default=DEFAULT_VOTING_THRESHOLD, help=f"Voting threshold 0-1 (default: {DEFAULT_VOTING_THRESHOLD})")
     parser.add_argument("--api-url", default=DEFAULT_API_URL, help="Prediction API URL")
     parser.add_argument("--signal-dir", help="Signal output directory")
     parser.add_argument("--webhook", help="Webhook URL")
@@ -674,6 +659,8 @@ def main():
     signal = run(
         symbol=args.symbol,
         strategy=args.strategy,
+        window=args.window,
+        threshold=args.threshold,
         api_url=api_url,
         signal_dir=signal_dir,
         webhook_url=webhook_url,
@@ -695,7 +682,7 @@ def main():
         if "mlp_prob" in factors:
             print(f"  MLP Prob: {factors['mlp_prob']:.1f}%")
         if "bullish_pct" in factors:
-            print(f"  Bullish: {factors['bullish_pct']:.1f}%")
+            print(f"  Bullish: {factors['bullish_pct']:.1f}% (window={factors.get('window')}, thresh={factors.get('threshold')})")
         if "volatility" in factors:
             print(f"  Volatility: {factors['volatility']:.2f}%")
         
