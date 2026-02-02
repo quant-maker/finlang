@@ -66,7 +66,9 @@ DEFAULT_VOTING_CONFIG = {
     "strategy": "voting",
     "symbol": "BTCUSDT",
     "window": 48,
-    "threshold": 0.58,
+    "threshold": 0.58,          # bullish_pct >= threshold -> LONG
+    "short_threshold": 0.42,    # bullish_pct <= short_threshold -> SHORT
+    "allow_short": True,        # enable short positions
     "rebalance_hours": 72,
 }
 
@@ -79,6 +81,9 @@ DEFAULT_MLP_CONFIG = {
     "retrain_freq": 168,
     "hidden_dim": 16,
     "epochs": 50,
+    "long_threshold": 0.55,     # prob >= long_threshold -> LONG
+    "short_threshold": 0.45,    # prob <= short_threshold -> SHORT
+    "allow_short": True,
     "rebalance_hours": 24,
 }
 
@@ -87,6 +92,7 @@ DEFAULT_DYNAMIC_CONFIG = {
     "strategy": "dynamic",
     "symbol": "BTCUSDT",
     "window": 48,
+    "allow_short": True,
     "rebalance_hours": 24,
 }
 
@@ -337,9 +343,13 @@ def voting_strategy(
     Config params:
         window: Number of hours to look back (default: 48)
         threshold: Bullish % to go long (default: 0.58)
+        short_threshold: Bullish % to go short (default: 0.42)
+        allow_short: Enable short positions (default: True)
     """
     window = config.get("window", 48)
     threshold = config.get("threshold", 0.58)
+    short_threshold = config.get("short_threshold", 0.42)
+    allow_short = config.get("allow_short", True)
     
     if not records:
         return {"error": "No predictions available"}
@@ -359,8 +369,11 @@ def voting_strategy(
     total_count = len(window_records)
     bullish_pct = bullish_count / total_count if total_count > 0 else 0.5
     
+    # Decision logic
     if bullish_pct >= threshold:
         position, action, trend = 1, "LONG", "bullish"
+    elif allow_short and bullish_pct <= short_threshold:
+        position, action, trend = -1, "SHORT", "bearish"
     else:
         position, action, trend = 0, "FLAT", "neutral"
     
@@ -374,6 +387,8 @@ def voting_strategy(
         "total_count": total_count,
         "window": window,
         "threshold": threshold,
+        "short_threshold": short_threshold,
+        "allow_short": allow_short,
     }
 
 
@@ -390,6 +405,9 @@ def mlp_strategy(
     retrain_freq = config.get("retrain_freq", 168)
     hidden_dim = config.get("hidden_dim", 16)
     epochs = config.get("epochs", 50)
+    long_threshold = config.get("long_threshold", 0.55)
+    short_threshold = config.get("short_threshold", 0.45)
+    allow_short = config.get("allow_short", True)
     
     mlp = OnlineMLP(
         input_dim=3,
@@ -420,10 +438,10 @@ def mlp_strategy(
         features = np.array([current_sig_24h, current_sig_24h**2, current_sig_24h - 0.5])
         prob = float(mlp.predict(features.reshape(1, -1))[0, 0])
         
-        if prob >= 0.55:
+        if prob >= long_threshold:
             position, action, trend = 1, "LONG", "bullish"
-        elif prob < 0.45:
-            position, action, trend = 0, "FLAT", "bearish"
+        elif allow_short and prob <= short_threshold:
+            position, action, trend = -1, "SHORT", "bearish"
         else:
             position, action, trend = 0, "FLAT", "neutral"
         
@@ -435,9 +453,12 @@ def mlp_strategy(
             "mlp_prob": prob,
             "mlp_trained": True,
             "train_stats": train_stats,
+            "long_threshold": long_threshold,
+            "short_threshold": short_threshold,
+            "allow_short": allow_short,
         }
     else:
-        return voting_strategy(records, {"window": 48, "threshold": 0.58})
+        return voting_strategy(records, {"window": 48, "threshold": 0.58, "allow_short": allow_short})
 
 
 def _train_mlp(
@@ -499,29 +520,31 @@ def dynamic_strategy(
 ) -> Dict[str, Any]:
     """Dynamic strategy: Adaptive thresholds based on recent volatility."""
     window = config.get("window", 48)
+    allow_short = config.get("allow_short", True)
     
     if len(records) < window:
-        return voting_strategy(records, {"window": window, "threshold": 0.58})
+        return voting_strategy(records, {"window": window, "threshold": 0.58, "allow_short": allow_short})
     
     window_records = records[-window:]
     
     prices = [r.get("current_close", 0) for r in window_records if r.get("current_close", 0) > 0]
     if len(prices) < 10:
-        return voting_strategy(records, {"window": window, "threshold": 0.58})
+        return voting_strategy(records, {"window": window, "threshold": 0.58, "allow_short": allow_short})
     
     prices = np.array(prices)
     returns = np.diff(np.log(prices))
     volatility = np.std(returns) * np.sqrt(24)
     
-    if volatility > 0.03:
+    # Adaptive thresholds based on volatility
+    if volatility > 0.03:       # High vol: be more selective
         long_threshold = 0.65
-        flat_threshold = 0.35
-    elif volatility < 0.015:
+        short_threshold = 0.35
+    elif volatility < 0.015:    # Low vol: be more aggressive
         long_threshold = 0.52
-        flat_threshold = 0.48
-    else:
+        short_threshold = 0.48
+    else:                       # Normal vol
         long_threshold = 0.58
-        flat_threshold = 0.42
+        short_threshold = 0.42
     
     bullish_count = 0
     for rec in window_records:
@@ -537,8 +560,8 @@ def dynamic_strategy(
     
     if bullish_pct >= long_threshold:
         position, action, trend = 1, "LONG", "bullish"
-    elif bullish_pct < flat_threshold:
-        position, action, trend = 0, "FLAT", "bearish"
+    elif allow_short and bullish_pct <= short_threshold:
+        position, action, trend = -1, "SHORT", "bearish"
     else:
         position, action, trend = 0, "FLAT", "neutral"
     
@@ -550,7 +573,8 @@ def dynamic_strategy(
         "bullish_pct": bullish_pct,
         "volatility": volatility,
         "long_threshold": long_threshold,
-        "flat_threshold": flat_threshold,
+        "short_threshold": short_threshold,
+        "allow_short": allow_short,
     }
 
 
