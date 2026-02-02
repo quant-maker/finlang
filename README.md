@@ -4,7 +4,7 @@ Lightweight trading signal generator using remote prediction API. Supports multi
 
 ## Features
 
-- **Multiple Strategies**: voting, voting_72h, voting_120h, mlp, dynamic
+- **Multiple Strategies**: voting_48h (recommended), voting, voting_120h, mlp, dynamic
 - **Auto Backfill**: Automatically fills missing history on cold start
 - **Cron Ready**: Designed for hourly crontab execution
 - **Webhook Support**: Send signals to external services
@@ -12,35 +12,39 @@ Lightweight trading signal generator using remote prediction API. Supports multi
 
 ## Strategies
 
-| Strategy | Window | Long Threshold | Short Threshold | Allows Short | Sharpe (Backtest) |
-|----------|--------|----------------|-----------------|--------------|-------------------|
-| `voting` | 96h | 50% | 40% | No | 0.95 |
-| `voting_72h` | 72h | 52% | 48% | No | **1.02** |
-| `voting_120h` | 120h | 58% | 40% | No | 0.97 |
-| `mlp` | 272h* | 55% | 45% | No | TBD |
-| `dynamic` | 48h | Adaptive | Adaptive | No | TBD |
+| Strategy | Window | Long Threshold | Short Threshold | Allows Short | Sharpe (Backtest) | vs B&H |
+|----------|--------|----------------|-----------------|--------------|-------------------|--------|
+| `voting_48h` | 48h | 58% | 42% | No | **1.45** | ✅ BEATS |
+| `voting` | 96h | 50% | 40% | No | 0.65 | ❌ |
+| `voting_120h` | 120h | 58% | 40% | No | 0.97 | ❌ |
+| `mlp` | 272h* | 55% | 45% | No | TBD | TBD |
+| `dynamic` | 48h | Adaptive | Adaptive | No | TBD | TBD |
 
 \* MLP requires 200 training samples + 72h lookahead = 272 hours minimum
 
-Backtest period: 2023-02-14 ~ 2026-01-29 (25,928 hours)
+**Backtest period**: 2023-02-14 ~ 2026-01-29 (25,928 hours, 72h rebalance frequency)
+
+**Buy & Hold baseline**: Sharpe 1.18, Return 262%
 
 ### Strategy Details
 
-#### Voting (Default)
-Counts bullish predictions (upside_probability > 50%) in a rolling window. Long-only.
+#### Voting 48h (Recommended - Beats B&H)
+48h rolling window with 58% threshold. Only strategy that beats Buy & Hold in backtests.
+
+```
+If bullish_pct >= 58% → LONG
+If bullish_pct < 42%  → FLAT
+Otherwise             → FLAT
+```
+
+**Performance**: Sharpe 1.45, Return 275%, Max Drawdown -30%
+
+#### Voting (96h)
+Counts bullish predictions (upside_probability > 50%) in a 96h rolling window. Long-only.
 
 ```
 If bullish_pct >= 50% → LONG
 If bullish_pct < 40%  → FLAT
-Otherwise             → FLAT
-```
-
-#### Voting 72h (Best Sharpe)
-72h rolling window with 52%/48% thresholds. Best backtested Sharpe ratio (1.02).
-
-```
-If bullish_pct >= 52% → LONG
-If bullish_pct < 48%  → FLAT
 Otherwise             → FLAT
 ```
 
@@ -92,16 +96,17 @@ export FINLANG_SIGNAL_DIR="/path/to/signals"
 ### Manual Run
 
 ```bash
-# Default strategy (voting)
-python -m finlang.cron --symbol BTCUSDT
+# Recommended strategy (voting_48h - beats B&H)
+python -m finlang.cron --symbol BTCUSDT --strategy voting_48h
 
-# Specific strategy
+# Other strategies
+python -m finlang.cron --symbol BTCUSDT --strategy voting
 python -m finlang.cron --symbol BTCUSDT --strategy voting_120h
 python -m finlang.cron --symbol BTCUSDT --strategy mlp
 python -m finlang.cron --symbol BTCUSDT --strategy dynamic
 
 # Test run (no file saving)
-python -m finlang.cron --symbol BTCUSDT --strategy voting_120h --no-save --no-backfill
+python -m finlang.cron --symbol BTCUSDT --strategy voting_48h --no-save --no-backfill
 
 # JSON output
 python -m finlang.cron --symbol BTCUSDT --json

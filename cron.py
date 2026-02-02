@@ -3,9 +3,9 @@
 Unified Cron Script - All strategies using remote prediction API.
 
 Supports:
-- Voting strategy (96h window, long_threshold=0.50, Sharpe ~0.95)
-- Voting 72h strategy (72h window, long_threshold=0.52, Sharpe ~1.02, best Sharpe)
-- Voting 120h strategy (120h window, long_threshold=0.58, Sharpe ~0.97)
+- Voting 48h strategy (48h window, 58% threshold, Sharpe 1.45, BEATS B&H - recommended)
+- Voting strategy (96h window, 50% threshold, Sharpe ~0.65)
+- Voting 120h strategy (120h window, 58% threshold, Sharpe ~0.97)
 - MLP strategy (online learning neural network)
 - Dynamic strategy (adaptive thresholds)
 
@@ -18,11 +18,11 @@ Configuration:
 - Set FINLANG_API_URL environment variable to specify the prediction service URL
 
 Usage:
-    # Run with default strategy (voting)
-    python -m finlang.cron --symbol BTCUSDT
+    # Run with recommended strategy (voting_48h - beats B&H)
+    python -m finlang.cron --symbol BTCUSDT --strategy voting_48h
     
-    # Run with specific strategy
-    python -m finlang.cron --symbol BTCUSDT --strategy voting_72h
+    # Run with other strategies
+    python -m finlang.cron --symbol BTCUSDT --strategy voting
     python -m finlang.cron --symbol BTCUSDT --strategy voting_120h
     python -m finlang.cron --symbol BTCUSDT --strategy mlp
     python -m finlang.cron --symbol BTCUSDT --strategy dynamic
@@ -34,7 +34,7 @@ Usage:
     python -m finlang.cron --symbol BTCUSDT --strategy mlp --force-retrain
 
 Crontab:
-    5 * * * * cd /path/to/finlang && python -m finlang.cron --symbol BTCUSDT >> /var/log/finlang.log 2>&1
+    5 * * * * cd /path/to/finlang && python -m finlang.cron --symbol BTCUSDT --strategy voting_48h >> /var/log/finlang.log 2>&1
 """
 
 import os
@@ -60,21 +60,21 @@ from finlang.model.mlp import OnlineMLP
 # Configuration
 # =============================================================================
 
-# Voting strategy configurations (based on backtest with 25928 hours of data)
-# voting: 96h window, long_threshold=0.50, Sharpe ~0.95
-# voting_72h: 72h window, long_threshold=0.52, Sharpe ~1.02 (best Sharpe)
-# voting_120h: 120h window, long_threshold=0.58, Sharpe ~0.97
+# Voting strategy configurations (based on backtest with 25928 hours of data, 72h rebalance)
+# voting_48h: 48h window, long_threshold=0.58, Sharpe 1.45 (BEATS B&H, recommended)
+# voting: 96h window, long_threshold=0.50, Sharpe ~0.65 (underperforms B&H)
+# voting_120h: 120h window, long_threshold=0.58, Sharpe ~0.97 (underperforms B&H)
 VOTING_CONFIGS = {
+    "voting_48h": {
+        "window": 48,
+        "long_threshold": 0.58,
+        "short_threshold": 0.42,  # flat threshold (no short)
+        "allow_short": False,
+    },
     "voting": {
         "window": 96,
         "long_threshold": 0.50,
-        "short_threshold": 0.40,  # flat threshold (no short)
-        "allow_short": False,
-    },
-    "voting_72h": {
-        "window": 72,
-        "long_threshold": 0.52,
-        "short_threshold": 0.48,
+        "short_threshold": 0.40,
         "allow_short": False,
     },
     "voting_120h": {
@@ -645,7 +645,7 @@ def run(
 def main():
     parser = argparse.ArgumentParser(description="Unified cron signal generator with all strategies")
     parser.add_argument("--symbol", "-s", default="BTCUSDT", help="Trading symbol")
-    parser.add_argument("--strategy", "-t", choices=["voting", "voting_72h", "voting_120h", "mlp", "dynamic"], default="voting", help="Strategy to use")
+    parser.add_argument("--strategy", "-t", choices=["voting_48h", "voting", "voting_120h", "mlp", "dynamic"], default="voting_48h", help="Strategy to use (voting_48h recommended)")
     parser.add_argument("--api-url", default=DEFAULT_API_URL, help="Prediction API URL")
     parser.add_argument("--signal-dir", help="Signal output directory")
     parser.add_argument("--webhook", help="Webhook URL")
